@@ -4,8 +4,8 @@ import os
 import secrets
 import base64
 from cryptography.hazmat.primitives.asymmetric import ed25519
-from cryptography.hazmat.primitives import serialization
 from pydantic import BaseModel
+from typing import Optional
 
 app = FastAPI()
 
@@ -20,7 +20,10 @@ class SignatureRequest(BaseModel):
     signature: str
 
 @app.get("/")
-def serve_ciphertext(device_id: str):
+def serve_ciphertext(device_id: Optional[str] = None):
+    if not device_id:
+        raise HTTPException(status_code=403, detail="Device identity required")
+
     if device_id not in verified_devices:
         raise HTTPException(status_code=403, detail="Device not verified")
     
