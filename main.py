@@ -16,8 +16,14 @@ public_key = ed25519.Ed25519PublicKey.from_public_bytes(PUBLIC_KEY_BYTES)
 challenges = {} # Stores {device_id: challenge_string}
 verified_devices = set()
 
+device_locations = {}
+
 class SignatureRequest(BaseModel):
     signature: str
+
+class LocationPayload(BaseModel):
+    lat: float
+    lon: float
 
 @app.get("/")
 def serve_ciphertext(device_id: Optional[str] = None):
@@ -37,6 +43,17 @@ def serve_ciphertext(device_id: Optional[str] = None):
         media_type='application/octet-stream',
         filename='cryptstream_payload.enc'
     )
+
+@app.post("/heartbeat/{device_id}")
+async def receive_heartbeat(device_id: str, payload: LocationPayload):
+    device_locations[device_id] = {
+        "lat": payload.lat,
+        "lon": payload.lon
+    }
+    
+    print(f"Device {device_id} heartbeat: {payload.lat}, {payload.lon}")
+    
+    return {"status": "received"}
 
 @app.get("/request-challenge/{device_id}")
 def get_challenge(device_id: str):
