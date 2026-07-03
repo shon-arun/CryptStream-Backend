@@ -5,6 +5,7 @@ import secrets
 import base64
 from cryptography.hazmat.primitives.asymmetric import ed25519
 from cryptography.hazmat.primitives import serialization
+from pydantic import BaseModel
 
 app = FastAPI()
 
@@ -14,6 +15,9 @@ PUBLIC_KEY_BYTES = base64.b64decode(PUBLIC_KEY_BASE64)
 public_key = ed25519.Ed25519PublicKey.from_public_bytes(PUBLIC_KEY_BYTES)
 challenges = {} # Stores {device_id: challenge_string}
 verified_devices = set()
+
+class SignatureRequest(BaseModel):
+    signature: str
 
 @app.get("/")
 def serve_ciphertext(device_id: str):
@@ -38,14 +42,13 @@ def get_challenge(device_id: str):
     return {"challenge": challenge}
 
 @app.post("/verify/{device_id}")
-async def verify_device(device_id: str, request: Request):
-    data = await request.json()
-    signature = base64.b64decode(data.get("signature"))
+async def verify_device(device_id: str, payload: SignatureRequest):
+    signature = base64.b64decode(payload.signature)
     challenge = challenges.get(device_id)
-    
+
     if not challenge:
         raise HTTPException(status_code=400, detail="No challenge found")
-    
+
     try:
         public_key.verify(signature, challenge.encode())
         verified_devices.add(device_id)
