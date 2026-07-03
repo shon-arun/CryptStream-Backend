@@ -6,6 +6,7 @@ import base64
 from cryptography.hazmat.primitives.asymmetric import ed25519
 from pydantic import BaseModel
 from typing import Optional
+from fastapi import Query
 
 app = FastAPI()
 
@@ -18,20 +19,34 @@ verified_devices = set()
 
 device_locations = {}
 
-class SignatureRequest(BaseModel):
+class SignatureAndLocationRequest(BaseModel):
     signature: str
+    lat: float
+    lon: float
 
 class LocationPayload(BaseModel):
     lat: float
     lon: float
 
+MIN_LAT = 9.74
+MAX_LAT = 9.76
+MIN_LON = 76.69
+MAX_LON = 76.71
+
 @app.get("/")
-def serve_ciphertext(device_id: Optional[str] = None):
+def serve_ciphertext(
+    device_id: Optional[str] = None,
+    lat: float = Query(...), 
+    lon: float = Query(...)
+):
     if not device_id:
         raise HTTPException(status_code=403, detail="Device identity required")
 
     if device_id not in verified_devices:
         raise HTTPException(status_code=403, detail="Device not verified")
+    
+    if not (MIN_LAT <= lat <= MAX_LAT and MIN_LON <= lon <= MAX_LON):
+        raise HTTPException(status_code=403, detail="Access denied: Out of bounds")
     
     file_path = "sample.enc"
 
@@ -56,16 +71,32 @@ async def receive_heartbeat(device_id: str, payload: LocationPayload):
     return {"status": "received"}
 
 @app.get("/request-challenge/{device_id}")
-def get_challenge(device_id: str):
+def get_challenge(
+    device_id: str,
+    lat: float = Query(...), 
+    lon: float = Query(...)
+):    
+    if not (MIN_LAT <= lat <= MAX_LAT and MIN_LON <= lon <= MAX_LON):
+        raise HTTPException(status_code=403, detail="Access denied: Out of bounds")
+    
     challenge = secrets.token_hex(32)
     challenges[device_id] = challenge
     return {"challenge": challenge}
 
 @app.post("/verify/{device_id}")
-async def verify_device(device_id: str, payload: SignatureRequest):
+async def verify_device(
+    device_id: str, 
+    payload: SignatureAndLocationRequest
+):
     signature = base64.b64decode(payload.signature)
     challenge = challenges.get(device_id)
 
+    lat = payload.lat
+    lon = payload.lon
+
+    if not (MIN_LAT <= lat <= MAX_LAT and MIN_LON <= lon <= MAX_LON):
+        raise HTTPException(status_code=403, detail="Access denied: Out of bounds")
+    
     if not challenge:
         raise HTTPException(status_code=400, detail="No challenge found")
 
