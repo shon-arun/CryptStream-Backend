@@ -33,6 +33,9 @@ MAX_LAT = 9.76
 MIN_LON = 76.69
 MAX_LON = 76.71
 
+def is_out_of_bounds(lat: float, lon: float) -> bool:
+    return not (MIN_LAT <= lat <= MAX_LAT and MIN_LON <= lon <= MAX_LON)
+
 @app.get("/")
 def serve_ciphertext(
     device_id: Optional[str] = None,
@@ -45,7 +48,7 @@ def serve_ciphertext(
     if device_id not in verified_devices:
         raise HTTPException(status_code=403, detail="Device not verified")
     
-    if not (MIN_LAT <= lat <= MAX_LAT and MIN_LON <= lon <= MAX_LON):
+    if is_out_of_bounds(lat, lon):
         raise HTTPException(status_code=403, detail="Access denied: Out of bounds")
     
     file_path = "sample.enc"
@@ -75,8 +78,8 @@ def get_challenge(
     device_id: str,
     lat: float = Query(...), 
     lon: float = Query(...)
-):    
-    if not (MIN_LAT <= lat <= MAX_LAT and MIN_LON <= lon <= MAX_LON):
+):
+    if is_out_of_bounds(lat, lon):
         raise HTTPException(status_code=403, detail="Access denied: Out of bounds")
     
     challenge = secrets.token_hex(32)
@@ -94,7 +97,7 @@ async def verify_device(
     lat = payload.lat
     lon = payload.lon
 
-    if not (MIN_LAT <= lat <= MAX_LAT and MIN_LON <= lon <= MAX_LON):
+    if is_out_of_bounds(lat, lon):
         raise HTTPException(status_code=403, detail="Access denied: Out of bounds")
     
     if not challenge:
