@@ -31,7 +31,7 @@ class LocationPayload(BaseModel):
 MIN_LAT = 9.74
 MAX_LAT = 9.76
 MIN_LON = 76.69
-MAX_LON = 76.70
+MAX_LON = 76.71
 
 def is_out_of_bounds(lat: float, lon: float) -> bool:
     return not (MIN_LAT <= lat <= MAX_LAT and MIN_LON <= lon <= MAX_LON)
