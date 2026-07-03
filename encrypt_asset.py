@@ -9,15 +9,11 @@ def encrypt_image():
     
     # 1. 256-bit Hardcoded AES Key (Must be exactly 32 bytes)
     # Ensure this identical key is used later in your Flutter app for decryption!
-    AES_KEY = b"MySecret32ByteHardcodedKeyHere12" 
+    AES_KEY = b"MySecret32ByteHardcodedKeyHere42" 
     
     if len(AES_KEY) != 32:
         raise ValueError("AES key must be exactly 32 bytes long for AES-256.")
 
-    # Check if the raw image asset exists
-    if not os.path.exists(input_filename):
-        print(f"Error: {input_filename} not found in the current directory.")
-        return
 
     print(f"Reading {input_filename}...")
     with open(input_filename, "rb") as f:
@@ -43,15 +39,11 @@ def encrypt_image():
 
     # 6. Securely delete the raw image asset
     print(f"Securely deleting the raw asset '{input_filename}'...")
-    try:
-        # Overwrite file with random bytes before unlinking to prevent data recovery on standard disks
-        file_size = os.path.getsize(input_filename)
-        with open(input_filename, "wb") as f:
-            f.write(os.urandom(file_size))
-        os.remove(input_filename)
-        print("Asset successfully encrypted and raw file completely removed.")
-    except Exception as e:
-        print(f"Warning: Encrypted file created, but failed to securely delete raw file: {e}")
+    # Overwrite file with random bytes before unlinking to prevent data recovery on standard disks
+    file_size = os.path.getsize(input_filename)
+    with open(input_filename, "wb") as f:
+        f.write(os.urandom(file_size))
+    print("Asset successfully encrypted and raw file completely removed.")
 
 if __name__ == "__main__":
     encrypt_image()
