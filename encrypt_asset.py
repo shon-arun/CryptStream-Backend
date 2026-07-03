@@ -37,12 +37,14 @@ def encrypt_image():
     with open(output_filename, "wb") as f:
         f.write(iv + ciphertext)
 
+    return # Add deletion feature later after testing. ## Better enabled ASAP
     # 6. Securely delete the raw image asset
     print(f"Securely deleting the raw asset '{input_filename}'...")
     # Overwrite file with random bytes before unlinking to prevent data recovery on standard disks
     file_size = os.path.getsize(input_filename)
     with open(input_filename, "wb") as f:
         f.write(os.urandom(file_size))
+    os.remove(input_filename)
     print("Asset successfully encrypted and raw file completely removed.")
 
 if __name__ == "__main__":
