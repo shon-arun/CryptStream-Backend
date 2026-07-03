@@ -68,9 +68,6 @@ async def receive_heartbeat(device_id: str, payload: LocationPayload):
         "lat": payload.lat,
         "lon": payload.lon
     }
-    
-    print(f"Device {device_id} heartbeat: {payload.lat}, {payload.lon}")
-    
     return {"status": "received"}
 
 @app.get("/request-challenge/{device_id}")
@@ -109,7 +106,3 @@ async def verify_device(
         return {"status": "verified"}
     except Exception:
         raise HTTPException(status_code=401, detail="Signature invalid")
-
-@app.get("/shady-object-0") # Should be removed ASAP
-def serve_image():
-    return FileResponse("sample.jpg")
