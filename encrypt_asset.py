@@ -1,51 +1,48 @@
 import os
 from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
-from cryptography.hazmat.primitives import padding
+from cryptography.hazmat.primitives import padding, hashes
+from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC
 from cryptography.hazmat.backends import default_backend
 
-def encrypt_image():
-    input_filename = "sample.jpg"
-    output_filename = "sample.enc"
-    
-    # 1. 256-bit Hardcoded AES Key (Must be exactly 32 bytes)
-    # Ensure this identical key is used later in your Flutter app for decryption!
-    AES_KEY = b"MySecret32ByteHardcodedKeyHere42" 
-    
-    if len(AES_KEY) != 32:
-        raise ValueError("AES key must be exactly 32 bytes long for AES-256.")
-
-
-    print(f"Reading {input_filename}...")
-    with open(input_filename, "rb") as f:
-        raw_data = f.read()
-
-    # 2. Apply PKCS7 Padding to make the data a multiple of the AES block size (16 bytes)
-    padder = padding.PKCS7(128).padder()
-    padded_data = padder.update(raw_data) + padder.finalize()
-
-    # 3. Generate a random 16-byte Initialization Vector (IV)
+def encrypt_file(input_path: str, output_path: str, passphrase: str):
     iv = os.urandom(16)
-
-    # 4. Initialize AES-256-CBC Cipher
-    cipher = Cipher(algorithms.AES(AES_KEY), modes.CBC(iv), backend=default_backend())
+    salt = os.urandom(16)
+    
+    kdf = PBKDF2HMAC(
+        algorithm=hashes.SHA256(),
+        length=32,
+        salt=salt,
+        iterations=10000,
+        backend=default_backend()
+    )
+    key = kdf.derive(passphrase.encode('utf-8'))
+    
+    with open(input_path, 'rb') as f:
+        plaintext = f.read()
+        
+    padder = padding.PKCS7(algorithms.AES.block_size).padder()
+    padded_data = padder.update(plaintext) + padder.finalize()
+    
+    cipher = Cipher(algorithms.AES(key), modes.CBC(iv), backend=default_backend())
     encryptor = cipher.encryptor()
     ciphertext = encryptor.update(padded_data) + encryptor.finalize()
-
-    # 5. Save Ciphertext to file
-    # CRITICAL: Prepend the 16-byte IV to the file so the Flutter app knows what IV to use!
-    print(f"Writing encrypted bytes to {output_filename}...")
-    with open(output_filename, "wb") as f:
-        f.write(iv + ciphertext)
-
-    return # Add deletion feature later after testing. ## Better enabled ASAP
-    # 6. Securely delete the raw image asset
-    print(f"Securely deleting the raw asset '{input_filename}'...")
-    # Overwrite file with random bytes before unlinking to prevent data recovery on standard disks
-    file_size = os.path.getsize(input_filename)
-    with open(input_filename, "wb") as f:
-        f.write(os.urandom(file_size))
-    os.remove(input_filename)
-    print("Asset successfully encrypted and raw file completely removed.")
+    
+    with open(output_path, 'wb') as f:
+        f.write(iv)
+        f.write(salt)
+        f.write(ciphertext)
+        
+    print(f"Encryption successful: {output_path}")
+    print(f"Packaged Format: [IV (16)] + [Salt (16)] + [Data ({len(ciphertext)})]")
 
 if __name__ == "__main__":
-    encrypt_image()
+    secret_passphrase = "testadmin42636"
+    
+    input_file = "sample_asset.png"
+    output_file = "sample.enc"
+    
+    if not os.path.exists(input_file):
+        with open(input_file, 'wb') as f:
+            f.write(b"CryptStream dummy payload content.")
+            
+    encrypt_file(input_file, output_file, secret_passphrase)
