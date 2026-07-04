@@ -1,11 +1,9 @@
 import os
-from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
-from cryptography.hazmat.primitives import padding, hashes
+from cryptography.hazmat.primitives.ciphers.aead import ChaCha20Poly1305
 from cryptography.hazmat.primitives.kdf.argon2 import Argon2id
-from cryptography.hazmat.backends import default_backend
 
 def encrypt_file(input_path: str, output_path: str, passphrase: str):
-    iv = os.urandom(16)
+    nonce = os.urandom(12)
     salt = os.urandom(16)
     
     kdf = Argon2id(
@@ -20,20 +18,16 @@ def encrypt_file(input_path: str, output_path: str, passphrase: str):
     with open(input_path, 'rb') as f:
         plaintext = f.read()
         
-    padder = padding.PKCS7(algorithms.AES.block_size).padder()
-    padded_data = padder.update(plaintext) + padder.finalize()
-    
-    cipher = Cipher(algorithms.AES(key), modes.CBC(iv), backend=default_backend())
-    encryptor = cipher.encryptor()
-    ciphertext = encryptor.update(padded_data) + encryptor.finalize()
+    chacha = ChaCha20Poly1305(key)
+    ciphertext = chacha.encrypt(nonce, plaintext, None)
     
     with open(output_path, 'wb') as f:
-        f.write(iv)
+        f.write(nonce)
         f.write(salt)
         f.write(ciphertext)
         
     print(f"Encryption successful: {output_path}")
-    print(f"Packaged Format: [IV (16)] + [Salt (16)] + [Data ({len(ciphertext)})]")
+    print(f"Packaged Format: [Nonce (12)] + [Salt (16)] + [Data ({len(ciphertext)})]")
 
 if __name__ == "__main__":
     secret_passphrase = "42636"
