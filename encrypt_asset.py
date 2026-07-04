@@ -13,7 +13,7 @@ def encrypt_file(input_path: str, output_path: str, passphrase: str):
         length=32,
         iterations=3,
         lanes=1,
-        memory_cost=65536
+        memory_cost=262144
     )
     key = kdf.derive(passphrase.encode('utf-8'))
     
