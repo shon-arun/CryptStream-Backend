@@ -36,7 +36,7 @@ def encrypt_file(input_path: str, output_path: str, passphrase: str):
     print(f"Packaged Format: [IV (16)] + [Salt (16)] + [Data ({len(ciphertext)})]")
 
 if __name__ == "__main__":
-    secret_passphrase = "testadmin42636"
+    secret_passphrase = "42636"
     
     input_file = "sample.jpg"
     output_file = "sample.enc"
