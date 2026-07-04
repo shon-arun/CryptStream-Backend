@@ -1,19 +1,19 @@
 import os
 from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
 from cryptography.hazmat.primitives import padding, hashes
-from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC
+from cryptography.hazmat.primitives.kdf.argon2 import Argon2id
 from cryptography.hazmat.backends import default_backend
 
 def encrypt_file(input_path: str, output_path: str, passphrase: str):
     iv = os.urandom(16)
     salt = os.urandom(16)
     
-    kdf = PBKDF2HMAC(
-        algorithm=hashes.SHA256(),
-        length=32,
+    kdf = Argon2id(
         salt=salt,
-        iterations=10000,
-        backend=default_backend()
+        length=32,
+        iterations=3,
+        lanes=1,
+        memory_cost=65536
     )
     key = kdf.derive(passphrase.encode('utf-8'))
     
