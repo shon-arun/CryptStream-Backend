@@ -12,17 +12,11 @@ app = FastAPI()
 
 @app.exception_handler(RequestValidationError)
 async def validation_exception_handler(request: Request, exc: RequestValidationError):
-    """
-    Catches all Pydantic validation errors (missing parameters, wrong data types, etc.)
-    and prevents the default 422 Unprocessable Entity response.
-    Returns a generic 400 Bad Request to gracefully handle attacker manipulation.
-    """
     return JSONResponse(
         status_code=400,
         content={"detail": "Malformed request: Invalid, missing, or malformed parameters."}
     )
 
-# Initialize SQLite Database to store dynamic public keys and IP addresses
 def init_db():
     with sqlite3.connect("devices.db") as conn:
         cursor = conn.cursor()
@@ -33,16 +27,20 @@ def init_db():
                 ip_address TEXT
             )
         """)
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS payloads (
+                pointer TEXT PRIMARY KEY,
+                encrypted_blob BLOB
+            )
+        """)
         conn.commit()
 
 init_db()
 
-challenges = {} # Stores {device_id: challenge_string}
+challenges = {}
 verified_devices = set()
-
 device_locations = {}
 
-# Replaced query parameters and path parameters with unified Request Models
 class ServeRequest(BaseModel):
     device_id: str
     lat: float
@@ -68,6 +66,19 @@ class RegisterRequest(BaseModel):
     device_id: str
     public_key: str
 
+class UploadPayloadRequest(BaseModel):
+    device_id: str
+    lat: float
+    lon: float
+    pointer: str
+    base64_blob: str
+
+class FetchPayloadRequest(BaseModel):
+    device_id: str
+    lat: float
+    lon: float
+    pointer: str
+
 MIN_LAT = 9.74
 MAX_LAT = 9.76
 MIN_LON = 76.69
@@ -78,7 +89,6 @@ def is_out_of_bounds(lat: float, lon: float) -> bool:
 
 @app.post("/register")
 async def register_device(payload: RegisterRequest, request: Request):
-    """Registers a device's public key and locks it to their current IP address."""
     client_ip = request.client.host
     
     with sqlite3.connect("devices.db") as conn:
@@ -90,8 +100,79 @@ async def register_device(payload: RegisterRequest, request: Request):
         conn.commit()
         
     return {"status": "registered", "ip_locked": client_ip}
+    
+@app.post("/payload/upload")
+async def upload_payload(payload: UploadPayloadRequest, request: Request):
+    client_ip = request.client.host
+    
+    with sqlite3.connect("devices.db") as conn:
+        cursor = conn.cursor()
+        cursor.execute("SELECT ip_address FROM devices WHERE device_id = ?", (payload.device_id,))
+        row = cursor.fetchone()
+        
+    if not row:
+        raise HTTPException(status_code=404, detail="Device not registered")
+        
+    stored_ip = row[0]
+    if stored_ip != client_ip:
+        raise HTTPException(status_code=403, detail="IP address mismatch. Verification failed.")
+        
+    if payload.device_id not in verified_devices:
+        raise HTTPException(status_code=403, detail="Device not verified")
 
-# Changed from GET to POST to accept body payloads
+    if is_out_of_bounds(payload.lat, payload.lon):
+        raise HTTPException(status_code=403, detail="Access denied: Out of bounds")
+        
+    try:
+        raw_bytes = base64.b64decode(payload.base64_blob)
+    except Exception:
+        raise HTTPException(status_code=400, detail="Invalid base64 payload provided.")
+
+    with sqlite3.connect("devices.db") as conn:
+        cursor = conn.cursor()
+        cursor.execute(
+            "INSERT OR REPLACE INTO payloads (pointer, encrypted_blob) VALUES (?, ?)",
+            (payload.pointer, raw_bytes)
+        )
+        conn.commit()
+        
+    return {"status": "success", "detail": f"Payload {payload.pointer} uploaded successfully"}
+
+@app.post("/payload/fetch")
+async def fetch_payload(payload: FetchPayloadRequest, request: Request):
+    from fastapi.responses import Response
+    
+    client_ip = request.client.host
+    
+    with sqlite3.connect("devices.db") as conn:
+        cursor = conn.cursor()
+        cursor.execute("SELECT ip_address FROM devices WHERE device_id = ?", (payload.device_id,))
+        row = cursor.fetchone()
+        
+    if not row:
+        raise HTTPException(status_code=404, detail="Device not registered")
+        
+    if row[0] != client_ip:
+        raise HTTPException(status_code=403, detail="IP address mismatch. Verification failed.")
+        
+    if payload.device_id not in verified_devices:
+        raise HTTPException(status_code=403, detail="Device not verified")
+
+    if is_out_of_bounds(payload.lat, payload.lon):
+        raise HTTPException(status_code=403, detail="Access denied: Out of bounds")
+
+    # Fetch the blob using the pointer (e.g., "root")
+    with sqlite3.connect("devices.db") as conn:
+        cursor = conn.cursor()
+        cursor.execute("SELECT encrypted_blob FROM payloads WHERE pointer = ?", (payload.pointer,))
+        blob_row = cursor.fetchone()
+        
+    if not blob_row:
+        raise HTTPException(status_code=404, detail="Payload pointer not found")
+        
+    # Return raw binary data for the Dart Isolate to decrypt
+    return Response(content=blob_row[0], media_type="application/octet-stream")
+
 @app.post("/")
 def serve_ciphertext(payload: ServeRequest):
     if not payload.device_id:
@@ -114,10 +195,8 @@ def serve_ciphertext(payload: ServeRequest):
         filename='cryptstream_payload.enc'
     )
 
-# Removed {device_id} from URL; it is now inside LocationPayload
 @app.post("/heartbeat")
 async def receive_heartbeat(payload: LocationPayload):
-    # Enforce geofence on heartbeat
     if is_out_of_bounds(payload.lat, payload.lon):
         raise HTTPException(status_code=403, detail="Access denied: Out of bounds")
         
@@ -127,7 +206,6 @@ async def receive_heartbeat(payload: LocationPayload):
     }
     return {"status": "received"}
 
-# Changed to POST, removed {device_id} and query parameters from URL
 @app.post("/request-challenge")
 def get_challenge(payload: ChallengeRequest):
     if is_out_of_bounds(payload.lat, payload.lon):
@@ -137,12 +215,10 @@ def get_challenge(payload: ChallengeRequest):
     challenges[payload.device_id] = challenge
     return {"challenge": challenge}
 
-# Removed {device_id} from URL; it is now inside SignatureAndLocationRequest
 @app.post("/verify")
 async def verify_device(payload: SignatureAndLocationRequest, request: Request):
     client_ip = request.client.host
     
-    # Fetch the stored public key and IP address from the database
     with sqlite3.connect("devices.db") as conn:
         cursor = conn.cursor()
         cursor.execute("SELECT public_key, ip_address FROM devices WHERE device_id = ?", (payload.device_id,))
@@ -153,7 +229,6 @@ async def verify_device(payload: SignatureAndLocationRequest, request: Request):
         
     stored_pub_key_b64, stored_ip = row
     
-    # IP Verification Check: Ensures the request originates from the registered IP
     if stored_ip != client_ip:
         raise HTTPException(status_code=403, detail="IP address mismatch. Verification failed.")
 
@@ -170,7 +245,6 @@ async def verify_device(payload: SignatureAndLocationRequest, request: Request):
         raise HTTPException(status_code=400, detail="No challenge found")
 
     try:
-        # Dynamically reconstruct the specific device's public key
         public_key_bytes = base64.b64decode(stored_pub_key_b64)
         public_key = ed25519.Ed25519PublicKey.from_public_bytes(public_key_bytes)
         
