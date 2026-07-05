@@ -1,5 +1,5 @@
 from fastapi import FastAPI, HTTPException, Request
-from fastapi.responses import FileResponse, JSONResponse
+from fastapi.responses import FileResponse, JSONResponse, Response
 from fastapi.exceptions import RequestValidationError
 import os
 import secrets
@@ -24,9 +24,16 @@ def init_db():
             CREATE TABLE IF NOT EXISTS devices (
                 device_id TEXT PRIMARY KEY,
                 public_key TEXT,
-                ip_address TEXT
+                ip_address TEXT,
+                vault_salt TEXT
             )
         """)
+        
+        try:
+            cursor.execute("ALTER TABLE devices ADD COLUMN vault_salt TEXT")
+        except sqlite3.OperationalError:
+            pass
+            
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS payloads (
                 pointer TEXT PRIMARY KEY,
@@ -93,13 +100,26 @@ async def register_device(payload: RegisterRequest, request: Request):
     
     with sqlite3.connect("devices.db") as conn:
         cursor = conn.cursor()
+        
+        cursor.execute("SELECT vault_salt FROM devices WHERE device_id = ?", (payload.device_id,))
+        row = cursor.fetchone()
+        
+        if row and row[0]:
+            vault_salt_b64 = row[0]
+        else:
+            vault_salt_b64 = base64.b64encode(secrets.token_bytes(16)).decode('utf-8')
+            
         cursor.execute(
-            "INSERT OR REPLACE INTO devices (device_id, public_key, ip_address) VALUES (?, ?, ?)",
-            (payload.device_id, payload.public_key, client_ip)
+            "INSERT OR REPLACE INTO devices (device_id, public_key, ip_address, vault_salt) VALUES (?, ?, ?, ?)",
+            (payload.device_id, payload.public_key, client_ip, vault_salt_b64)
         )
         conn.commit()
         
-    return {"status": "registered", "ip_locked": client_ip}
+    return {
+        "status": "registered", 
+        "ip_locked": client_ip,
+        "vault_salt": vault_salt_b64
+    }
     
 @app.post("/payload/upload")
 async def upload_payload(payload: UploadPayloadRequest, request: Request):
@@ -140,8 +160,6 @@ async def upload_payload(payload: UploadPayloadRequest, request: Request):
 
 @app.post("/payload/fetch")
 async def fetch_payload(payload: FetchPayloadRequest, request: Request):
-    from fastapi.responses import Response
-    
     client_ip = request.client.host
     
     with sqlite3.connect("devices.db") as conn:
@@ -161,7 +179,6 @@ async def fetch_payload(payload: FetchPayloadRequest, request: Request):
     if is_out_of_bounds(payload.lat, payload.lon):
         raise HTTPException(status_code=403, detail="Access denied: Out of bounds")
 
-    # Fetch the blob using the pointer (e.g., "root")
     with sqlite3.connect("devices.db") as conn:
         cursor = conn.cursor()
         cursor.execute("SELECT encrypted_blob FROM payloads WHERE pointer = ?", (payload.pointer,))
@@ -170,7 +187,6 @@ async def fetch_payload(payload: FetchPayloadRequest, request: Request):
     if not blob_row:
         raise HTTPException(status_code=404, detail="Payload pointer not found")
         
-    # Return raw binary data for the Dart Isolate to decrypt
     return Response(content=blob_row[0], media_type="application/octet-stream")
 
 @app.post("/")
