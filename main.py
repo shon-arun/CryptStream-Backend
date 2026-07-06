@@ -325,11 +325,3 @@ async def admin_dashboard():
             <table border='1'><tr><th>ID</th><th>Public Key</th><th>Auth</th><th>Action</th></tr>{rows}</table>
         </body></html>
         """
-
-@app.post("/admin/toggle")
-async def toggle_device(device_id: str = Form(...)):
-    with sqlite3.connect("devices.db") as conn:
-        cursor = conn.cursor()
-        cursor.execute("UPDATE devices SET authorized = NOT authorized WHERE device_id = ?", (device_id,))
-        conn.commit()
-    return HTMLResponse(content="<script>window.location.href='/admin';</script>")
