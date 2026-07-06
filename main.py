@@ -86,6 +86,13 @@ class FetchPayloadRequest(BaseModel):
     lon: float
     pointer: str
 
+# New Pydantic model for the bulk deletion endpoint
+class DeletePayloadRequest(BaseModel):
+    device_id: str
+    lat: float
+    lon: float
+    pointers: list[str]
+
 MIN_LAT = 9.74
 MAX_LAT = 9.76
 MIN_LON = 76.69
@@ -189,6 +196,42 @@ async def fetch_payload(payload: FetchPayloadRequest, request: Request):
         
     return Response(content=blob_row[0], media_type="application/octet-stream")
 
+# New bulk deletion endpoint
+@app.post("/payload/delete")
+async def delete_payloads(payload: DeletePayloadRequest, request: Request):
+    client_ip = request.client.host
+    
+    with sqlite3.connect("devices.db") as conn:
+        cursor = conn.cursor()
+        cursor.execute("SELECT ip_address FROM devices WHERE device_id = ?", (payload.device_id,))
+        row = cursor.fetchone()
+        
+    if not row:
+        raise HTTPException(status_code=404, detail="Device not registered")
+        
+    if row[0] != client_ip:
+        raise HTTPException(status_code=403, detail="IP address mismatch. Verification failed.")
+        
+    if payload.device_id not in verified_devices:
+        raise HTTPException(status_code=403, detail="Device not verified")
+
+    if is_out_of_bounds(payload.lat, payload.lon):
+        raise HTTPException(status_code=403, detail="Access denied: Out of bounds")
+
+    if not payload.pointers:
+        return {"status": "success", "detail": "No pointers provided for deletion."}
+
+    # Execute a bulk SQL transaction to wipe the blocks
+    with sqlite3.connect("devices.db") as conn:
+        cursor = conn.cursor()
+        placeholders = ','.join('?' * len(payload.pointers))
+        query = f"DELETE FROM payloads WHERE pointer IN ({placeholders})"
+        cursor.execute(query, payload.pointers)
+        conn.commit()
+        deleted_count = cursor.rowcount
+        
+    return {"status": "success", "detail": f"Successfully wiped {deleted_count} blocks."}
+
 @app.post("/")
 def serve_ciphertext(payload: ServeRequest):
     if not payload.device_id:
@@ -266,7 +309,6 @@ async def verify_device(payload: SignatureAndLocationRequest, request: Request):
         
         public_key.verify(signature, challenge.encode())
         verified_devices.add(payload.device_id)
-        challenge = challenges.pop(payload.device_id, None)
         return {"status": "verified"}
     except Exception:
         raise HTTPException(status_code=401, detail="Signature invalid")
