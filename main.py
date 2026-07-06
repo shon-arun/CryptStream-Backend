@@ -25,14 +25,10 @@ def init_db():
                 device_id TEXT PRIMARY KEY,
                 public_key TEXT,
                 ip_address TEXT,
-                vault_salt TEXT
+                vault_salt TEXT,
+                authorized BOOLEAN DEFAULT 0
             )
         """)
-        
-        try:
-            cursor.execute("ALTER TABLE devices ADD COLUMN vault_salt TEXT")
-        except sqlite3.OperationalError:
-            pass
             
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS payloads (
@@ -108,7 +104,7 @@ async def register_device(payload: RegisterRequest, request: Request):
     with sqlite3.connect("devices.db") as conn:
         cursor = conn.cursor()
         
-        cursor.execute("SELECT vault_salt FROM devices WHERE device_id = ?", (payload.device_id,))
+        cursor.execute("SELECT vault_salt FROM devices WHERE device_id = ? AND authorized", (payload.device_id,))
         row = cursor.fetchone()
         
         if row and row[0]:
@@ -117,7 +113,7 @@ async def register_device(payload: RegisterRequest, request: Request):
             vault_salt_b64 = base64.b64encode(secrets.token_bytes(16)).decode('utf-8')
             
         cursor.execute(
-            "INSERT OR REPLACE INTO devices (device_id, public_key, ip_address, vault_salt) VALUES (?, ?, ?, ?)",
+            "INSERT OR IGNORE INTO devices (device_id, public_key, ip_address, vault_salt) VALUES (?, ?, ?, ?)",
             (payload.device_id, payload.public_key, client_ip, vault_salt_b64)
         )
         conn.commit()
@@ -134,7 +130,7 @@ async def upload_payload(payload: UploadPayloadRequest, request: Request):
     
     with sqlite3.connect("devices.db") as conn:
         cursor = conn.cursor()
-        cursor.execute("SELECT ip_address FROM devices WHERE device_id = ?", (payload.device_id,))
+        cursor.execute("SELECT ip_address FROM devices WHERE device_id = ? AND authorized", (payload.device_id,))
         row = cursor.fetchone()
         
     if not row:
@@ -171,7 +167,7 @@ async def fetch_payload(payload: FetchPayloadRequest, request: Request):
     
     with sqlite3.connect("devices.db") as conn:
         cursor = conn.cursor()
-        cursor.execute("SELECT ip_address FROM devices WHERE device_id = ?", (payload.device_id,))
+        cursor.execute("SELECT ip_address FROM devices WHERE device_id = ? AND authorized", (payload.device_id,))
         row = cursor.fetchone()
         
     if not row:
@@ -203,7 +199,7 @@ async def delete_payloads(payload: DeletePayloadRequest, request: Request):
     
     with sqlite3.connect("devices.db") as conn:
         cursor = conn.cursor()
-        cursor.execute("SELECT ip_address FROM devices WHERE device_id = ?", (payload.device_id,))
+        cursor.execute("SELECT ip_address FROM devices WHERE device_id = ? AND authorized", (payload.device_id,))
         row = cursor.fetchone()
         
     if not row:
@@ -280,7 +276,7 @@ async def verify_device(payload: SignatureAndLocationRequest, request: Request):
     
     with sqlite3.connect("devices.db") as conn:
         cursor = conn.cursor()
-        cursor.execute("SELECT public_key, ip_address FROM devices WHERE device_id = ?", (payload.device_id,))
+        cursor.execute("SELECT public_key, ip_address FROM devices WHERE device_id = ? AND authorized", (payload.device_id,))
         row = cursor.fetchone()
         
     if not row:
