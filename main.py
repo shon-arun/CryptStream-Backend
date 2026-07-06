@@ -266,6 +266,7 @@ async def verify_device(payload: SignatureAndLocationRequest, request: Request):
         
         public_key.verify(signature, challenge.encode())
         verified_devices.add(payload.device_id)
+        challenge = challenges.pop(payload.device_id, None)
         return {"status": "verified"}
     except Exception:
         raise HTTPException(status_code=401, detail="Signature invalid")
