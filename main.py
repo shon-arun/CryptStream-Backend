@@ -1,4 +1,4 @@
-from fastapi import FastAPI, HTTPException, Request, Form
+from fastapi import FastAPI, HTTPException, Request, Query
 from fastapi.responses import FileResponse, JSONResponse, HTMLResponse, Response
 from fastapi.exceptions import RequestValidationError
 import os
@@ -327,7 +327,7 @@ async def admin_dashboard():
         """
 
 @app.post("/admin/toggle")
-async def toggle_device(device_id: str = Form(...)):
+async def toggle_device(device_id: str = Query(...)):
     try:
         with sqlite3.connect("devices.db", timeout=10) as conn: # Added timeout
             cursor = conn.cursor()
